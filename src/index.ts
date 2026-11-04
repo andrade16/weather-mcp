@@ -5,7 +5,7 @@ import { NWS_API_BASE } from "./config.js";
 import { makeNWSRequest } from "./services/nws/client.js";
 import {
   AlertsResponse,
-  ForecaseResponse,
+  ForecastResponse,
   PointsResponse,
 } from "./services/nws/types.js";
 import { formatAlert } from "./formatters/alert.js";
@@ -118,7 +118,7 @@ function createServer() {
       }
 
       // Get forecast data
-      const forecastData = await makeNWSRequest<ForecaseResponse>(forecastUrl);
+      const forecastData = await makeNWSRequest<ForecastResponse>(forecastUrl);
 
       if (!forecastData) {
         return {
