@@ -1,22 +1,81 @@
-import { USER_AGENT } from "../../config.js";
+import type { z } from "zod";
+import { NWS_API_BASE, USER_AGENT } from "../../config.js";
+import { NwsError } from "./errors.js";
 
-async function makeNWSRequest<T>(url: string): Promise<T | null> {
-  const headers = {
-    "User-Agent": USER_AGENT,
-    Accept: "application/geo+json",
-  };
+import {
+  AlertsResponseSchema,
+  ForecastResponseSchema,
+  PointsResponseSchema,
+  type AlertFeature,
+  type ForecastPeriod,
+} from "./schemas.js";
+
+async function nwsRequest<T extends z.ZodType>(
+  url: string,
+  schema: T,
+): Promise<z.infer<T>> {
+  let body: unknown;
 
   try {
-    const response = await fetch(url, { headers });
+    const response = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/geo+json" },
+    });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      throw new NwsError(
+        `NWS API returned HTTP ${response.status}`,
+        response.status,
+      );
     }
-    return (await response.json()) as T;
+    body = await response.json();
   } catch (error) {
-    console.error("Error making NWS request: ", error);
-    return null;
+    if (error instanceof NwsError) throw error;
+    throw new NwsError(
+      `Could not reach the NWS API: ${(error as Error).message}`,
+    );
   }
+
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    throw new NwsError("NWS API returned an unexpected response format");
+  }
+  return parsed.data;
 }
 
-export { makeNWSRequest };
+export async function getAlerts(state: string): Promise<AlertFeature[]> {
+  const data = await nwsRequest(
+    `${NWS_API_BASE}/alerts?area=${state.toUpperCase()}`,
+    AlertsResponseSchema,
+  );
+  return data.features;
+}
+
+export async function getForecast(
+  latitude: number,
+  longitude: number,
+): Promise<ForecastPeriod[]> {
+  let points;
+  try {
+    points = await nwsRequest(
+      `${NWS_API_BASE}/points/${latitude.toFixed(4)},${longitude.toFixed(4)}`,
+      PointsResponseSchema,
+    );
+  } catch (error) {
+    if (error instanceof NwsError && error.status === 404) {
+      throw new NwsError(
+        `No grid point data for ${latitude}, ${longitude}. Only US locations are supported.`,
+        404,
+      );
+    }
+    throw error;
+  }
+
+  const forecastUrl = points.properties.forecast;
+
+  if (!forecastUrl) {
+    throw new NwsError("Grid point data did not incldue a forecast URL");
+  }
+
+  const forecast = await nwsRequest(forecastUrl, ForecastResponseSchema);
+  return forecast.properties.periods;
+}

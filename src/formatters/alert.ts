@@ -1,4 +1,4 @@
-import { AlertFeature } from "../services/nws/types.js";
+import type { AlertFeature } from "../services/nws/schemas.js";
 
 function formatAlert(feature: AlertFeature): string {
   const props = feature.properties;
